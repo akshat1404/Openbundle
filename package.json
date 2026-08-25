@@ -1,0 +1,15 @@
+{
+  "name": "openbundle",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Real JS bundler + interactive illustrator of its own internal analysis",
+  "workspaces": [
+    "core",
+    "web"
+  ],
+  "scripts": {
+    "test": "npm run test --workspace=core",
+    "dev": "npm run dev --workspace=web",
+    "build": "npm run build --workspace=core && npm run build --workspace=web"
+  }
+}
