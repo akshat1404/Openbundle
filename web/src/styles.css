@@ -1,0 +1,43 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 2rem;
+  max-width: 960px;
+  margin-inline: auto;
+}
+
+.app__tagline {
+  opacity: 0.8;
+}
+
+.app__section {
+  margin-block: 2rem;
+}
+
+.file-upload__list,
+.app__file-list {
+  font-family: ui-monospace, monospace;
+  padding-left: 1.25rem;
+}
+
+.pipeline-stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+}
+
+.pipeline-stage {
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  opacity: 0.6;
+}
+
+.pipeline-stage__placeholder {
+  font-style: italic;
+  font-size: 0.85rem;
+}
