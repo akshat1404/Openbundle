@@ -1,21 +1,40 @@
 import { useState } from "react";
-import { ping } from "openbundle-core";
+import { buildDependencyGraph, type DependencyGraph } from "openbundle-core";
 import { FileUpload } from "./FileUpload.js";
+import { EntryPointConfirm } from "./EntryPointConfirm.js";
 import { PipelineStages } from "./PipelineStages.js";
 import { SAMPLE_PROJECT, type SampleFile } from "./sampleProject.js";
+import { toProjectFiles } from "./projectFiles.js";
 
 export function App() {
   const [activeProject, setActiveProject] = useState<SampleFile[]>(SAMPLE_PROJECT);
   const [usingSample, setUsingSample] = useState(true);
+  const [graph, setGraph] = useState<DependencyGraph | null>(null);
+  const [resolveError, setResolveError] = useState<string | null>(null);
 
   function handleFilesSelected(files: SampleFile[]) {
     setActiveProject(files);
     setUsingSample(false);
+    setGraph(null);
+    setResolveError(null);
   }
 
   function resetToSample() {
     setActiveProject(SAMPLE_PROJECT);
     setUsingSample(true);
+    setGraph(null);
+    setResolveError(null);
+  }
+
+  function handleEntryConfirmed(entryPath: string) {
+    try {
+      const files = toProjectFiles(activeProject);
+      setGraph(buildDependencyGraph(entryPath, files));
+      setResolveError(null);
+    } catch (err) {
+      setGraph(null);
+      setResolveError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   return (
@@ -25,7 +44,7 @@ export function App() {
         <p className="app__tagline">
           A real bundler with a visible engine. Everything below, parsing, resolution, and every
           later pipeline stage, runs entirely in your browser. Nothing you upload leaves this
-          page. ({ping()})
+          page.
         </p>
       </header>
 
@@ -48,8 +67,13 @@ export function App() {
       </section>
 
       <section className="app__section">
+        <h2>Entry point</h2>
+        <EntryPointConfirm key={usingSample ? "sample" : "uploaded"} files={activeProject} onConfirm={handleEntryConfirmed} />
+      </section>
+
+      <section className="app__section">
         <h2>Pipeline</h2>
-        <PipelineStages />
+        <PipelineStages graph={graph} error={resolveError} />
       </section>
     </main>
   );
