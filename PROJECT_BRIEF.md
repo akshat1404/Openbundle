@@ -51,6 +51,31 @@ Do not repeat these. They are exactly why this project uses a real parser instea
 
 All four were caused by treating source code as text to pattern-match instead of structure to parse. A real AST with real scope tracking makes every one of these categorically impossible, not just less likely.
 
+## Test Fixtures — Single Source Of Truth
+
+The sample project must exist as real, on-disk files, not duplicated as a hardcoded string array anywhere. One canonical location:
+
+```
+fixtures/
+  sample-project/
+    index.js
+    config.js
+    utilsA.js
+    utilsB.js
+    sharedHelper.js
+    featureA.js
+    featureB.js
+  external-import/
+    index.js
+    localHelper.js
+```
+
+`core`'s test suite reads `fixtures/sample-project/` directly off disk (via Node's `fs`) to test resolution, ordering, merge, tree-shaking, and chunking against real files, the same files whose expected behavior was already verified against real Rollup output during design.
+
+`web`'s built-in sample project must load from this same folder at build time (Vite's `import.meta.glob` with raw string imports is the natural fit), not from a separately maintained TypeScript array. If stage one already created a hardcoded `sampleProject.ts` array, migrate it to read from `fixtures/sample-project/` instead, one canonical copy, never two.
+
+`fixtures/external-import/` is a second, small, dedicated fixture solely for testing bare-specifier classification, it should contain a genuine `import` of something that isn't a real installed package (e.g. `import axios from 'axios'`) purely as a string the resolver must recognize as external and refuse to follow, alongside one real local file it does follow. Do not add external imports to `sample-project/`, that fixture's exact contents are already verified against real Rollup output and should stay untouched.
+
 ## Testing Discipline
 
 Every stage ships with real, automated tests before being considered done. At minimum, tests must assert:
@@ -72,5 +97,3 @@ Do not attempt multiple stages in one pass. Each stage should be small enough to
 5. **Tree-shaking** — real reachability analysis against the AST/scope data.
 6. **Chunking** — dynamic import boundaries, shared-chunk extraction, output file generation.
 7. **Illustrator wiring** — connect the UI to each stage's real, already-computed output. No new bundling logic should be written in this stage.
-
-Wait for review after each stage before starting the next.
