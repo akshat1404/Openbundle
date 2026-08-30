@@ -51,6 +51,10 @@ Do not repeat these. They are exactly why this project uses a real parser instea
 
 All four were caused by treating source code as text to pattern-match instead of structure to parse. A real AST with real scope tracking makes every one of these categorically impossible, not just less likely.
 
+## Deployment
+
+Openbundle deploys to GitHub Pages, no backend, matching the project's own client-side-only architecture. Served from a project-repo subpath (`/Openbundle/`), not a domain root, `vite.config.ts` must set `base` accordingly or every built asset reference breaks silently. Deployed automatically via GitHub Actions on every push to `master`, using GitHub's own Pages deployment actions, not a third-party `gh-pages` branch action.
+
 ## Test Fixtures — Single Source Of Truth
 
 The sample project must exist as real, on-disk files, not duplicated as a hardcoded string array anywhere. One canonical location:
