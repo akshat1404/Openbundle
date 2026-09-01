@@ -3,8 +3,10 @@ import {
   buildDependencyGraph,
   orderModules,
   mergeModules,
+  shakeModules,
   type DependencyGraph,
   type MergeCollision,
+  type ShakeItem,
 } from "openbundle-core";
 import { FileUpload } from "./FileUpload.js";
 import { EntryPointConfirm } from "./EntryPointConfirm.js";
@@ -30,6 +32,12 @@ export function App() {
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [mergeDurationMs, setMergeDurationMs] = useState<number | null>(null);
 
+  const [shakenCode, setShakenCode] = useState<string | null>(null);
+  const [shakeKept, setShakeKept] = useState<ShakeItem[]>([]);
+  const [shakeRemoved, setShakeRemoved] = useState<ShakeItem[]>([]);
+  const [shakeError, setShakeError] = useState<string | null>(null);
+  const [shakeDurationMs, setShakeDurationMs] = useState<number | null>(null);
+
   function resetPipelineState() {
     setGraph(null);
     setResolveError(null);
@@ -41,6 +49,11 @@ export function App() {
     setMergeCollisions([]);
     setMergeError(null);
     setMergeDurationMs(null);
+    setShakenCode(null);
+    setShakeKept([]);
+    setShakeRemoved([]);
+    setShakeError(null);
+    setShakeDurationMs(null);
   }
 
   function handleFilesSelected(files: SampleFile[]) {
@@ -70,12 +83,18 @@ export function App() {
       setMergeCollisions([]);
       setMergeError(null);
       setMergeDurationMs(null);
+      setShakenCode(null);
+      setShakeKept([]);
+      setShakeRemoved([]);
+      setShakeError(null);
+      setShakeDurationMs(null);
       return;
     }
     const resolvedGraph = resolveRun.value;
 
-    // Ordering and merge are pure derivations of the graph resolve just
-    // produced — each runs immediately, same click, each timed for real.
+    // Ordering, merge, and tree-shaking are each pure derivations of the
+    // graph resolve just produced — every one runs immediately, same
+    // click, each timed for real.
     const orderRun = runTimed(() => orderModules(resolvedGraph));
     setOrderDurationMs(orderRun.durationMs);
     setOrder(orderRun.value);
@@ -85,6 +104,11 @@ export function App() {
       setMergeCollisions([]);
       setMergeError(null);
       setMergeDurationMs(null);
+      setShakenCode(null);
+      setShakeKept([]);
+      setShakeRemoved([]);
+      setShakeError(null);
+      setShakeDurationMs(null);
       return;
     }
 
@@ -93,6 +117,21 @@ export function App() {
     setMergedCode(mergeRun.value?.code ?? null);
     setMergeCollisions(mergeRun.value?.collisions ?? []);
     setMergeError(mergeRun.error);
+    if (!mergeRun.value) {
+      setShakenCode(null);
+      setShakeKept([]);
+      setShakeRemoved([]);
+      setShakeError(null);
+      setShakeDurationMs(null);
+      return;
+    }
+
+    const shakeRun = runTimed(() => shakeModules(mergeRun.value!, resolvedGraph.entry));
+    setShakeDurationMs(shakeRun.durationMs);
+    setShakenCode(shakeRun.value?.code ?? null);
+    setShakeKept(shakeRun.value?.kept ?? []);
+    setShakeRemoved(shakeRun.value?.removed ?? []);
+    setShakeError(shakeRun.error);
   }
 
   return (
@@ -142,6 +181,11 @@ export function App() {
           mergeCollisions={mergeCollisions}
           mergeError={mergeError}
           mergeDurationMs={mergeDurationMs}
+          shakenCode={shakenCode}
+          shakeKept={shakeKept}
+          shakeRemoved={shakeRemoved}
+          shakeError={shakeError}
+          shakeDurationMs={shakeDurationMs}
         />
       </section>
     </main>
