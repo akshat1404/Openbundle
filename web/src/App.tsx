@@ -1,10 +1,17 @@
 import { useState } from "react";
-import { buildDependencyGraph, orderModules, type DependencyGraph } from "openbundle-core";
+import {
+  buildDependencyGraph,
+  orderModules,
+  mergeModules,
+  type DependencyGraph,
+  type MergeCollision,
+} from "openbundle-core";
 import { FileUpload } from "./FileUpload.js";
 import { EntryPointConfirm } from "./EntryPointConfirm.js";
 import { PipelineStages } from "./PipelineStages.js";
 import { SAMPLE_PROJECT, type SampleFile } from "./sampleProject.js";
 import { toProjectFiles } from "./projectFiles.js";
+import { runTimed } from "./pipeline/runTimed.js";
 
 export function App() {
   const [activeProject, setActiveProject] = useState<SampleFile[]>(SAMPLE_PROJECT);
@@ -18,6 +25,11 @@ export function App() {
   const [orderError, setOrderError] = useState<string | null>(null);
   const [orderDurationMs, setOrderDurationMs] = useState<number | null>(null);
 
+  const [mergedCode, setMergedCode] = useState<string | null>(null);
+  const [mergeCollisions, setMergeCollisions] = useState<MergeCollision[]>([]);
+  const [mergeError, setMergeError] = useState<string | null>(null);
+  const [mergeDurationMs, setMergeDurationMs] = useState<number | null>(null);
+
   function resetPipelineState() {
     setGraph(null);
     setResolveError(null);
@@ -25,6 +37,10 @@ export function App() {
     setOrder(null);
     setOrderError(null);
     setOrderDurationMs(null);
+    setMergedCode(null);
+    setMergeCollisions([]);
+    setMergeError(null);
+    setMergeDurationMs(null);
   }
 
   function handleFilesSelected(files: SampleFile[]) {
@@ -41,34 +57,42 @@ export function App() {
 
   function handleEntryConfirmed(entryPath: string) {
     const files = toProjectFiles(activeProject);
-    const resolveStart = performance.now();
-    try {
-      const nextGraph = buildDependencyGraph(entryPath, files);
-      setResolveDurationMs(performance.now() - resolveStart);
-      setGraph(nextGraph);
-      setResolveError(null);
 
-      // Ordering is a pure derivation of the graph resolution just
-      // produced — it runs immediately, same as resolve did.
-      const orderStart = performance.now();
-      try {
-        const nextOrder = orderModules(nextGraph);
-        setOrderDurationMs(performance.now() - orderStart);
-        setOrder(nextOrder);
-        setOrderError(null);
-      } catch (err) {
-        setOrderDurationMs(performance.now() - orderStart);
-        setOrder(null);
-        setOrderError(err instanceof Error ? err.message : String(err));
-      }
-    } catch (err) {
-      setResolveDurationMs(performance.now() - resolveStart);
-      setGraph(null);
-      setResolveError(err instanceof Error ? err.message : String(err));
+    const resolveRun = runTimed(() => buildDependencyGraph(entryPath, files));
+    setResolveDurationMs(resolveRun.durationMs);
+    setGraph(resolveRun.value);
+    setResolveError(resolveRun.error);
+    if (!resolveRun.value) {
       setOrder(null);
       setOrderError(null);
       setOrderDurationMs(null);
+      setMergedCode(null);
+      setMergeCollisions([]);
+      setMergeError(null);
+      setMergeDurationMs(null);
+      return;
     }
+    const resolvedGraph = resolveRun.value;
+
+    // Ordering and merge are pure derivations of the graph resolve just
+    // produced — each runs immediately, same click, each timed for real.
+    const orderRun = runTimed(() => orderModules(resolvedGraph));
+    setOrderDurationMs(orderRun.durationMs);
+    setOrder(orderRun.value);
+    setOrderError(orderRun.error);
+    if (!orderRun.value) {
+      setMergedCode(null);
+      setMergeCollisions([]);
+      setMergeError(null);
+      setMergeDurationMs(null);
+      return;
+    }
+
+    const mergeRun = runTimed(() => mergeModules(resolvedGraph, orderRun.value!));
+    setMergeDurationMs(mergeRun.durationMs);
+    setMergedCode(mergeRun.value?.code ?? null);
+    setMergeCollisions(mergeRun.value?.collisions ?? []);
+    setMergeError(mergeRun.error);
   }
 
   return (
@@ -114,6 +138,10 @@ export function App() {
           order={order}
           orderError={orderError}
           orderDurationMs={orderDurationMs}
+          mergedCode={mergedCode}
+          mergeCollisions={mergeCollisions}
+          mergeError={mergeError}
+          mergeDurationMs={mergeDurationMs}
         />
       </section>
     </main>

@@ -331,3 +331,44 @@ body {
   margin: 0.15rem 0;
   font-size: 0.9rem;
 }
+
+.merge-panel__collisions {
+  margin-bottom: 0.85rem;
+  font-size: 0.85rem;
+}
+
+.merge-panel__collisions-title {
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+}
+
+.merge-panel__collisions-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.merge-panel__collisions-list code,
+.merge-panel__no-collisions code {
+  font-family: ui-monospace, monospace;
+  background: light-dark(#eef1f4, #21262d);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+}
+
+.merge-panel__no-collisions {
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.merge-panel__code {
+  margin: 0;
+  background: #0d1117;
+  color: #e6edf3;
+  padding: 0.9rem 1rem;
+  border-radius: 8px;
+  overflow: auto;
+  max-height: 420px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}

@@ -1,9 +1,10 @@
 import { Fragment, useState, type ReactNode } from "react";
-import type { DependencyGraph } from "openbundle-core";
+import type { DependencyGraph, MergeCollision } from "openbundle-core";
 import { JobCard } from "./pipeline/JobCard.js";
 import { Connector } from "./pipeline/Connector.js";
 import { GraphDiagram } from "./pipeline/GraphDiagram.js";
 import { OrderSequence } from "./pipeline/OrderSequence.js";
+import { MergePanel } from "./pipeline/MergePanel.js";
 import { formatDuration } from "./pipeline/formatDuration.js";
 import type { JobStatus } from "./pipeline/types.js";
 
@@ -14,6 +15,10 @@ interface PipelineStagesProps {
   order: string[] | null;
   orderError: string | null;
   orderDurationMs: number | null;
+  mergedCode: string | null;
+  mergeCollisions: MergeCollision[];
+  mergeError: string | null;
+  mergeDurationMs: number | null;
 }
 
 interface StageConfig {
@@ -37,14 +42,16 @@ export function PipelineStages({
   order,
   orderError,
   orderDurationMs,
+  mergedCode,
+  mergeCollisions,
+  mergeError,
+  mergeDurationMs,
 }: PipelineStagesProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const resolveStatus: JobStatus = resolveError ? "failed" : graph ? "passed" : "not-started";
-  const resolveStatusLine = jobStatusLine(resolveStatus, resolveDurationMs);
-
   const orderStatus: JobStatus = orderError ? "failed" : order ? "passed" : "not-started";
-  const orderStatusLine = jobStatusLine(orderStatus, orderDurationMs);
+  const mergeStatus: JobStatus = mergeError ? "failed" : mergedCode !== null ? "passed" : "not-started";
 
   const stages: StageConfig[] = [
     {
@@ -52,16 +59,22 @@ export function PipelineStages({
       columnLabel: "RESOLVE",
       jobName: "resolve:graph",
       status: resolveStatus,
-      statusLine: resolveStatusLine,
+      statusLine: jobStatusLine(resolveStatus, resolveDurationMs),
     },
     {
       key: "order",
       columnLabel: "ORDER",
       jobName: "order:sequence",
       status: orderStatus,
-      statusLine: orderStatusLine,
+      statusLine: jobStatusLine(orderStatus, orderDurationMs),
     },
-    { key: "merge", columnLabel: "MERGE", jobName: "merge:scope", status: "not-started", statusLine: "not started" },
+    {
+      key: "merge",
+      columnLabel: "MERGE",
+      jobName: "merge:scope",
+      status: mergeStatus,
+      statusLine: jobStatusLine(mergeStatus, mergeDurationMs),
+    },
     { key: "shake", columnLabel: "SHAKE", jobName: "shake:reachability", status: "not-started", statusLine: "not started" },
     { key: "chunk", columnLabel: "CHUNK", jobName: "chunk:output", status: "not-started", statusLine: "not started" },
   ];
@@ -100,6 +113,9 @@ export function PipelineStages({
             resolveError,
             order,
             orderError,
+            mergedCode,
+            mergeCollisions,
+            mergeError,
           })}
         </div>
       )}
@@ -117,6 +133,9 @@ interface DetailContext {
   resolveError: string | null;
   order: string[] | null;
   orderError: string | null;
+  mergedCode: string | null;
+  mergeCollisions: MergeCollision[];
+  mergeError: string | null;
 }
 
 function renderDetail(key: string, status: JobStatus, ctx: DetailContext): ReactNode {
@@ -134,8 +153,16 @@ function renderDetail(key: string, status: JobStatus, ctx: DetailContext): React
     return <p className="pipeline-detail__empty">Resolve the graph first — ordering runs right after.</p>;
   }
 
-  // merge/shake/chunk: no algorithm built yet, so honestly say so —
-  // never a placeholder dressed up as output.
+  if (key === "merge") {
+    if (status === "passed" && ctx.mergedCode !== null) {
+      return <MergePanel code={ctx.mergedCode} collisions={ctx.mergeCollisions} />;
+    }
+    if (status === "failed") return <p className="pipeline-detail__error">{ctx.mergeError}</p>;
+    return <p className="pipeline-detail__empty">Order the modules first — merge runs right after.</p>;
+  }
+
+  // shake/chunk: no algorithm built yet, so honestly say so — never a
+  // placeholder dressed up as output.
   return (
     <p className="pipeline-detail__empty">
       This stage hasn&apos;t run — it isn&apos;t built yet.
