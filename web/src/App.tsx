@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { buildDependencyGraph, type DependencyGraph } from "openbundle-core";
+import { buildDependencyGraph, orderModules, type DependencyGraph } from "openbundle-core";
 import { FileUpload } from "./FileUpload.js";
 import { EntryPointConfirm } from "./EntryPointConfirm.js";
 import { PipelineStages } from "./PipelineStages.js";
@@ -9,38 +9,65 @@ import { toProjectFiles } from "./projectFiles.js";
 export function App() {
   const [activeProject, setActiveProject] = useState<SampleFile[]>(SAMPLE_PROJECT);
   const [usingSample, setUsingSample] = useState(true);
+
   const [graph, setGraph] = useState<DependencyGraph | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [resolveDurationMs, setResolveDurationMs] = useState<number | null>(null);
 
-  function handleFilesSelected(files: SampleFile[]) {
-    setActiveProject(files);
-    setUsingSample(false);
+  const [order, setOrder] = useState<string[] | null>(null);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [orderDurationMs, setOrderDurationMs] = useState<number | null>(null);
+
+  function resetPipelineState() {
     setGraph(null);
     setResolveError(null);
     setResolveDurationMs(null);
+    setOrder(null);
+    setOrderError(null);
+    setOrderDurationMs(null);
+  }
+
+  function handleFilesSelected(files: SampleFile[]) {
+    setActiveProject(files);
+    setUsingSample(false);
+    resetPipelineState();
   }
 
   function resetToSample() {
     setActiveProject(SAMPLE_PROJECT);
     setUsingSample(true);
-    setGraph(null);
-    setResolveError(null);
-    setResolveDurationMs(null);
+    resetPipelineState();
   }
 
   function handleEntryConfirmed(entryPath: string) {
     const files = toProjectFiles(activeProject);
-    const start = performance.now();
+    const resolveStart = performance.now();
     try {
       const nextGraph = buildDependencyGraph(entryPath, files);
-      setResolveDurationMs(performance.now() - start);
+      setResolveDurationMs(performance.now() - resolveStart);
       setGraph(nextGraph);
       setResolveError(null);
+
+      // Ordering is a pure derivation of the graph resolution just
+      // produced — it runs immediately, same as resolve did.
+      const orderStart = performance.now();
+      try {
+        const nextOrder = orderModules(nextGraph);
+        setOrderDurationMs(performance.now() - orderStart);
+        setOrder(nextOrder);
+        setOrderError(null);
+      } catch (err) {
+        setOrderDurationMs(performance.now() - orderStart);
+        setOrder(null);
+        setOrderError(err instanceof Error ? err.message : String(err));
+      }
     } catch (err) {
-      setResolveDurationMs(performance.now() - start);
+      setResolveDurationMs(performance.now() - resolveStart);
       setGraph(null);
       setResolveError(err instanceof Error ? err.message : String(err));
+      setOrder(null);
+      setOrderError(null);
+      setOrderDurationMs(null);
     }
   }
 
@@ -80,7 +107,14 @@ export function App() {
 
       <section className="app__section">
         <h2>Pipeline</h2>
-        <PipelineStages graph={graph} error={resolveError} resolveDurationMs={resolveDurationMs} />
+        <PipelineStages
+          graph={graph}
+          resolveError={resolveError}
+          resolveDurationMs={resolveDurationMs}
+          order={order}
+          orderError={orderError}
+          orderDurationMs={orderDurationMs}
+        />
       </section>
     </main>
   );

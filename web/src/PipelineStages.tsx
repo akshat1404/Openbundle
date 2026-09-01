@@ -3,13 +3,17 @@ import type { DependencyGraph } from "openbundle-core";
 import { JobCard } from "./pipeline/JobCard.js";
 import { Connector } from "./pipeline/Connector.js";
 import { GraphDiagram } from "./pipeline/GraphDiagram.js";
+import { OrderSequence } from "./pipeline/OrderSequence.js";
 import { formatDuration } from "./pipeline/formatDuration.js";
 import type { JobStatus } from "./pipeline/types.js";
 
 interface PipelineStagesProps {
   graph: DependencyGraph | null;
-  error: string | null;
+  resolveError: string | null;
   resolveDurationMs: number | null;
+  order: string[] | null;
+  orderError: string | null;
+  orderDurationMs: number | null;
 }
 
 interface StageConfig {
@@ -26,14 +30,21 @@ interface StageConfig {
  * is meant to stay fixed as later stages land — only the per-stage
  * status and detail content in `renderDetail` grows.
  */
-export function PipelineStages({ graph, error, resolveDurationMs }: PipelineStagesProps) {
+export function PipelineStages({
+  graph,
+  resolveError,
+  resolveDurationMs,
+  order,
+  orderError,
+  orderDurationMs,
+}: PipelineStagesProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  const resolveStatus: JobStatus = error ? "failed" : graph ? "passed" : "not-started";
-  const resolveStatusLine =
-    resolveStatus === "not-started"
-      ? "not started"
-      : `${formatDuration(resolveDurationMs ?? 0)} · ${resolveStatus}`;
+  const resolveStatus: JobStatus = resolveError ? "failed" : graph ? "passed" : "not-started";
+  const resolveStatusLine = jobStatusLine(resolveStatus, resolveDurationMs);
+
+  const orderStatus: JobStatus = orderError ? "failed" : order ? "passed" : "not-started";
+  const orderStatusLine = jobStatusLine(orderStatus, orderDurationMs);
 
   const stages: StageConfig[] = [
     {
@@ -43,7 +54,13 @@ export function PipelineStages({ graph, error, resolveDurationMs }: PipelineStag
       status: resolveStatus,
       statusLine: resolveStatusLine,
     },
-    { key: "order", columnLabel: "ORDER", jobName: "order:sequence", status: "not-started", statusLine: "not started" },
+    {
+      key: "order",
+      columnLabel: "ORDER",
+      jobName: "order:sequence",
+      status: orderStatus,
+      statusLine: orderStatusLine,
+    },
     { key: "merge", columnLabel: "MERGE", jobName: "merge:scope", status: "not-started", statusLine: "not started" },
     { key: "shake", columnLabel: "SHAKE", jobName: "shake:reachability", status: "not-started", statusLine: "not started" },
     { key: "chunk", columnLabel: "CHUNK", jobName: "chunk:output", status: "not-started", statusLine: "not started" },
@@ -78,25 +95,46 @@ export function PipelineStages({ graph, error, resolveDurationMs }: PipelineStag
       {selectedStage && (
         <div className="pipeline-detail">
           <h3 className="pipeline-detail__title">{selectedStage.jobName}</h3>
-          {renderDetail(selectedStage.key, selectedStage.status, { graph, error })}
+          {renderDetail(selectedStage.key, selectedStage.status, {
+            graph,
+            resolveError,
+            order,
+            orderError,
+          })}
         </div>
       )}
     </div>
   );
 }
 
-function renderDetail(
-  key: string,
-  status: JobStatus,
-  ctx: { graph: DependencyGraph | null; error: string | null },
-): ReactNode {
+function jobStatusLine(status: JobStatus, durationMs: number | null): string {
+  if (status === "not-started") return "not started";
+  return `${formatDuration(durationMs ?? 0)} · ${status}`;
+}
+
+interface DetailContext {
+  graph: DependencyGraph | null;
+  resolveError: string | null;
+  order: string[] | null;
+  orderError: string | null;
+}
+
+function renderDetail(key: string, status: JobStatus, ctx: DetailContext): ReactNode {
   if (key === "resolve") {
     if (status === "passed" && ctx.graph) return <ResolutionSummary graph={ctx.graph} />;
-    if (status === "failed") return <p className="pipeline-detail__error">{ctx.error}</p>;
+    if (status === "failed") return <p className="pipeline-detail__error">{ctx.resolveError}</p>;
     return <p className="pipeline-detail__empty">Confirm an entry point above to resolve.</p>;
   }
 
-  // order/merge/shake/chunk: no algorithm built yet, so honestly say so —
+  if (key === "order") {
+    if (status === "passed" && ctx.order && ctx.graph) {
+      return <OrderSequence order={ctx.order} entry={ctx.graph.entry} />;
+    }
+    if (status === "failed") return <p className="pipeline-detail__error">{ctx.orderError}</p>;
+    return <p className="pipeline-detail__empty">Resolve the graph first — ordering runs right after.</p>;
+  }
+
+  // merge/shake/chunk: no algorithm built yet, so honestly say so —
   // never a placeholder dressed up as output.
   return (
     <p className="pipeline-detail__empty">
