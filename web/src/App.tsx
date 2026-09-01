@@ -11,12 +11,14 @@ export function App() {
   const [usingSample, setUsingSample] = useState(true);
   const [graph, setGraph] = useState<DependencyGraph | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
+  const [resolveDurationMs, setResolveDurationMs] = useState<number | null>(null);
 
   function handleFilesSelected(files: SampleFile[]) {
     setActiveProject(files);
     setUsingSample(false);
     setGraph(null);
     setResolveError(null);
+    setResolveDurationMs(null);
   }
 
   function resetToSample() {
@@ -24,14 +26,19 @@ export function App() {
     setUsingSample(true);
     setGraph(null);
     setResolveError(null);
+    setResolveDurationMs(null);
   }
 
   function handleEntryConfirmed(entryPath: string) {
+    const files = toProjectFiles(activeProject);
+    const start = performance.now();
     try {
-      const files = toProjectFiles(activeProject);
-      setGraph(buildDependencyGraph(entryPath, files));
+      const nextGraph = buildDependencyGraph(entryPath, files);
+      setResolveDurationMs(performance.now() - start);
+      setGraph(nextGraph);
       setResolveError(null);
     } catch (err) {
+      setResolveDurationMs(performance.now() - start);
       setGraph(null);
       setResolveError(err instanceof Error ? err.message : String(err));
     }
@@ -73,7 +80,7 @@ export function App() {
 
       <section className="app__section">
         <h2>Pipeline</h2>
-        <PipelineStages graph={graph} error={resolveError} />
+        <PipelineStages graph={graph} error={resolveError} resolveDurationMs={resolveDurationMs} />
       </section>
     </main>
   );
