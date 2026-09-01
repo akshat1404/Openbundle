@@ -2,6 +2,7 @@ import { Fragment, useState, type ReactNode } from "react";
 import type { DependencyGraph } from "openbundle-core";
 import { JobCard } from "./pipeline/JobCard.js";
 import { Connector } from "./pipeline/Connector.js";
+import { GraphDiagram } from "./pipeline/GraphDiagram.js";
 import { formatDuration } from "./pipeline/formatDuration.js";
 import type { JobStatus } from "./pipeline/types.js";
 
@@ -118,6 +119,7 @@ function ResolutionSummary({ graph }: { graph: DependencyGraph }) {
       <p>
         {graph.edges.length} edges — {staticCount} static, {dynamicCount} dynamic
       </p>
+      <GraphDiagram graph={graph} />
       <div className="resolution-summary__nodes">
         {[...graph.nodes.values()].map((node) =>
           node.kind === "local" ? (

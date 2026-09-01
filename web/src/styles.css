@@ -188,6 +188,92 @@ body {
   opacity: 0.7;
 }
 
+.graph-diagram {
+  margin: 0.75rem 0 1rem;
+  overflow-x: auto;
+}
+
+.graph-diagram__svg {
+  display: block;
+  max-width: 100%;
+}
+
+.graph-diagram__node rect {
+  fill: light-dark(#ffffff, #161b22);
+  stroke: light-dark(#8b949e, #58606a);
+  stroke-width: 1.5;
+}
+
+.graph-diagram__node text {
+  font: 11px ui-monospace, monospace;
+  fill: light-dark(#1f2328, #e6edf3);
+  pointer-events: none;
+}
+
+.graph-diagram__entry-tag {
+  font: 700 9px ui-monospace, monospace;
+  letter-spacing: 0.06em;
+  fill: light-dark(#0969da, #58a6ff);
+}
+
+.graph-diagram__node--entry rect {
+  stroke: light-dark(#0969da, #58a6ff);
+  stroke-width: 2.5;
+  fill: light-dark(#ddf4ff, #0c2d48);
+}
+
+.graph-diagram__node--external rect {
+  stroke-dasharray: 4 3;
+  fill: light-dark(#f6f8fa, #21262d);
+  opacity: 0.85;
+}
+
+.graph-diagram__edge {
+  fill: none;
+  stroke: light-dark(#8b949e, #58606a);
+  stroke-width: 1.5;
+}
+
+.graph-diagram__edge--dynamic {
+  stroke-dasharray: 5 4;
+}
+
+.graph-diagram__arrowhead {
+  fill: light-dark(#8b949e, #58606a);
+}
+
+.graph-diagram__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: light-dark(#6e7781, #8b949e);
+  margin-top: 0.4rem;
+}
+
+.graph-diagram__legend-line {
+  display: inline-block;
+  width: 22px;
+  height: 0;
+  border-top: 2px solid currentColor;
+  vertical-align: middle;
+  margin-right: 0.3rem;
+}
+
+.graph-diagram__legend-line--dynamic {
+  border-top-style: dashed;
+}
+
+.graph-diagram__legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px dashed currentColor;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 0.3rem;
+}
+
 .entry-point-confirm__field {
   display: block;
   margin-block: 0.5rem;
