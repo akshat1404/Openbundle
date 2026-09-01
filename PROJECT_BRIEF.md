@@ -89,6 +89,11 @@ fixtures/
   external-import/
     index.js
     localHelper.js
+  merge-collisions/
+    index.js
+    a.js
+    b.js
+    c.js
 ```
 
 `core`'s test suite reads `fixtures/sample-project/` directly off disk (via Node's `fs`) to test resolution, ordering, merge, tree-shaking, and chunking against real files, the same files whose expected behavior was already verified against real Rollup output during design.
@@ -96,6 +101,8 @@ fixtures/
 `web`'s built-in sample project must load from this same folder at build time (Vite's `import.meta.glob` with raw string imports is the natural fit), not from a separately maintained TypeScript array. If stage one already created a hardcoded `sampleProject.ts` array, migrate it to read from `fixtures/sample-project/` instead, one canonical copy, never two.
 
 `fixtures/external-import/` is a second, small, dedicated fixture solely for testing bare-specifier classification, it should contain a genuine `import` of something that isn't a real installed package (e.g. `import axios from 'axios'`) purely as a string the resolver must recognize as external and refuse to follow, alongside one real local file it does follow. Do not add external imports to `sample-project/`, that fixture's exact contents are already verified against real Rollup output and should stay untouched.
+
+`fixtures/merge-collisions/` is a third, small, dedicated fixture solely for testing merge's collision-renaming: `a.js` and `b.js` each declare their own top-level `shared` (a real collision), `c.js` is deliberately unrelated — its own local variable named `shared` inside a function, plus an object property key and a string literal that both happen to spell `shared` — none of which are collision candidates and none of which may ever be touched by a rename happening in `a.js`/`b.js`.
 
 ## Testing Discipline
 
