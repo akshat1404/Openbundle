@@ -1,9 +1,10 @@
 /**
  * Openbundle core engine entry point.
  *
- * Stage 4: real parsing (@babel/parser + @babel/traverse), dependency-
- * graph resolution, topological ordering, and scope-based merge with
- * collision renaming. Tree-shaking and chunking land in later stages.
+ * Stage 5: real parsing (@babel/parser + @babel/traverse), dependency-
+ * graph resolution, topological ordering, scope-based merge with
+ * collision renaming, and mark-and-sweep tree-shaking. Chunking lands
+ * in a later stage.
  */
 export function ping(): string {
   return "openbundle-core: ready";
@@ -32,4 +33,7 @@ export type {
 export { orderModules } from "./order.js";
 
 export { mergeModules } from "./merge.js";
-export type { MergeCollision, MergeResult } from "./merge.js";
+export type { MergeCollision, MergedFileBlock, MergeResult } from "./merge.js";
+
+export { shakeModules } from "./shake.js";
+export type { ShakeItem, ShakeReason, ShakeResult } from "./shake.js";
