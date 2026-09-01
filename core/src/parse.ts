@@ -4,12 +4,29 @@ import * as t from "@babel/types";
 import type { File } from "@babel/types";
 
 /**
+ * One named specifier on a static import, e.g. `shared` (unaliased) or
+ * `shared as sharedA` — `imported` is the real exported name, `local` is
+ * the binding name this file actually uses. Merge needs both: once
+ * everything shares one scope, a reference to `local` has to resolve to
+ * whatever `imported`'s real, possibly-collision-renamed name is.
+ */
+export interface ImportSpecifierRecord {
+  imported: string;
+  local: string;
+}
+
+/**
  * One `import`/dynamic-`import()` statement found in a module.
- * `source` is the raw specifier text, unresolved.
+ * `source` is the raw specifier text, unresolved. `specifiers` is only
+ * populated for static named imports — a dynamic `import()`'s bindings
+ * come from destructuring the awaited result, not the import site
+ * itself, and default/namespace imports aren't part of the collision-
+ * safety this stage is responsible for.
  */
 export interface ImportRecord {
   source: string;
   kind: "static" | "dynamic";
+  specifiers: ImportSpecifierRecord[];
 }
 
 /**
@@ -52,14 +69,20 @@ export function parseModule(source: string, path: string): ParsedModule {
       boundNames = Object.keys(nodePath.scope.bindings);
     },
     ImportDeclaration(nodePath) {
-      imports.push({ source: nodePath.node.source.value, kind: "static" });
+      const specifiers: ImportSpecifierRecord[] = [];
+      for (const spec of nodePath.node.specifiers) {
+        if (!t.isImportSpecifier(spec)) continue; // skip default/namespace specifiers
+        const imported = t.isIdentifier(spec.imported) ? spec.imported.name : spec.imported.value;
+        specifiers.push({ imported, local: spec.local.name });
+      }
+      imports.push({ source: nodePath.node.source.value, kind: "static", specifiers });
     },
     // Dynamic import() parses as its own node type, not a CallExpression
     // with an Import callee (that was the pre-ES2020 shape).
     ImportExpression(nodePath) {
       const arg = nodePath.node.source;
       if (arg.type === "StringLiteral") {
-        imports.push({ source: arg.value, kind: "dynamic" });
+        imports.push({ source: arg.value, kind: "dynamic", specifiers: [] });
       }
     },
   });

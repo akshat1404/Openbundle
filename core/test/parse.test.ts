@@ -9,8 +9,23 @@ describe("parseModule", () => {
     `;
     const { imports } = parseModule(source, "entry.js");
 
-    expect(imports).toContainEqual({ source: "./a.js", kind: "static" });
-    expect(imports).toContainEqual({ source: "./b.js", kind: "dynamic" });
+    expect(imports).toContainEqual({
+      source: "./a.js",
+      kind: "static",
+      specifiers: [{ imported: "a", local: "a" }],
+    });
+    expect(imports).toContainEqual({ source: "./b.js", kind: "dynamic", specifiers: [] });
+  });
+
+  it("captures an aliased named import's real exported name and local alias separately", () => {
+    const source = `import { shared as sharedA } from './a.js';`;
+    const { imports } = parseModule(source, "entry.js");
+
+    expect(imports).toContainEqual({
+      source: "./a.js",
+      kind: "static",
+      specifiers: [{ imported: "shared", local: "sharedA" }],
+    });
   });
 
   it("collects top-level declarations of every shape, not just function/const", () => {

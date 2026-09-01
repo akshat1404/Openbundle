@@ -10,7 +10,12 @@ export function ping(): string {
 }
 
 export { parseModule } from "./parse.js";
-export type { ImportRecord, ParsedModule, TopLevelDeclarationRecord } from "./parse.js";
+export type {
+  ImportRecord,
+  ImportSpecifierRecord,
+  ParsedModule,
+  TopLevelDeclarationRecord,
+} from "./parse.js";
 
 export { isExternalSpecifier, resolveRelativeImport } from "./resolvePath.js";
 

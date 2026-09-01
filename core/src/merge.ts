@@ -3,6 +3,7 @@ import generate from "@babel/generator";
 import * as t from "@babel/types";
 import type { DependencyGraph } from "./graph.js";
 import type { ParsedModule } from "./parse.js";
+import { isExternalSpecifier, resolveRelativeImport } from "./resolvePath.js";
 
 /**
  * One resolved top-level naming collision: `file`'s own declaration of
@@ -38,9 +39,20 @@ export interface MergeResult {
  * binding, a shadowed inner variable, an object property key, or a
  * string literal that merely shares the spelling.
  *
+ * A second, unified pass then handles import aliasing: for every static,
+ * local import specifier, if the importing file's own local alias name
+ * doesn't already match the real (possibly-just-renamed) name of the
+ * thing it imports, that alias gets folded into the very same rename
+ * map and rewired via the same Scope.rename call. A non-aliased import
+ * (`local === imported`) resolves to a no-op through this exact path —
+ * there's no separate "aliased" vs "non-aliased" branch.
+ *
  * Nothing is removed for being "unused" here — that's stage 5's job.
- * import/export statements themselves are stripped, since once every
- * file shares one scope there's nothing left for them to link.
+ * Local import/export statements are stripped, since once every file
+ * shares one scope there's nothing left for them to link; an external
+ * (bare-specifier) import statement is left completely untouched, per
+ * the project's scope boundary — it's never opened, so merge has
+ * nothing to flatten it into.
  */
 export function mergeModules(graph: DependencyGraph, order: string[]): MergeResult {
   const localOrder = order.filter((id) => graph.nodes.get(id)?.kind === "local");
@@ -49,11 +61,11 @@ export function mergeModules(graph: DependencyGraph, order: string[]): MergeResu
   const renamesByFile = new Map<string, Map<string, string>>();
   const collisions: MergeCollision[] = [];
 
+  // Pass 1: collision detection among each file's own top-level declarations.
   for (const filePath of localOrder) {
     const node = graph.nodes.get(filePath);
     if (!node || node.kind !== "local") continue;
 
-    const fileRenames = new Map<string, string>();
     for (const name of topLevelDeclarationNames(node.module)) {
       if (!usedNames.has(name)) {
         usedNames.add(name);
@@ -61,11 +73,30 @@ export function mergeModules(graph: DependencyGraph, order: string[]): MergeResu
       }
       const renamedTo = allocateFreeName(name, usedNames);
       usedNames.add(renamedTo);
-      fileRenames.set(name, renamedTo);
+      renameMapFor(renamesByFile, filePath).set(name, renamedTo);
       collisions.push({ name, file: filePath, renamedTo });
     }
+  }
 
-    if (fileRenames.size > 0) renamesByFile.set(filePath, fileRenames);
+  // Pass 2: rewire every static, local import alias to the real, final
+  // name of whatever it imports — computed from pass 1's renames, which
+  // are already complete for every file by this point regardless of
+  // processing order.
+  for (const filePath of localOrder) {
+    const node = graph.nodes.get(filePath);
+    if (!node || node.kind !== "local") continue;
+
+    for (const imp of node.module.imports) {
+      if (imp.kind !== "static" || isExternalSpecifier(imp.source)) continue;
+      const targetFile = resolveRelativeImport(filePath, imp.source);
+
+      for (const spec of imp.specifiers) {
+        const finalName = renamesByFile.get(targetFile)?.get(spec.imported) ?? spec.imported;
+        if (spec.local !== finalName) {
+          renameMapFor(renamesByFile, filePath).set(spec.local, finalName);
+        }
+      }
+    }
   }
 
   const blocks = localOrder.map((filePath) => {
@@ -75,6 +106,15 @@ export function mergeModules(graph: DependencyGraph, order: string[]): MergeResu
   });
 
   return { code: blocks.join("\n\n"), collisions, fileOrder: localOrder };
+}
+
+function renameMapFor(byFile: Map<string, Map<string, string>>, file: string): Map<string, string> {
+  let map = byFile.get(file);
+  if (!map) {
+    map = new Map();
+    byFile.set(file, map);
+  }
+  return map;
 }
 
 function topLevelDeclarationNames(module: ParsedModule): string[] {
@@ -94,8 +134,9 @@ function allocateFreeName(baseName: string, usedNames: Set<string>): string {
 /**
  * Render one file's contribution to the merged output: its own AST,
  * cloned (never mutate the shared parsed module later stages still
- * need), with any collision renames applied via real scope tracking,
- * then with import/export wrappers stripped.
+ * need), with every rename for this file — its own collision renames
+ * and any import-alias rewires — applied via real scope tracking, then
+ * with local import/export wrappers stripped.
  */
 function renderFileBlock(
   filePath: string,
@@ -116,7 +157,12 @@ function renderFileBlock(
 
   const body: t.Statement[] = [];
   for (const stmt of ast.program.body) {
-    if (t.isImportDeclaration(stmt)) continue; // module linking is moot in a shared scope
+    if (t.isImportDeclaration(stmt)) {
+      // External imports keep the import statement untouched — they're
+      // never opened, so there's nothing for merge to flatten it into.
+      if (isExternalSpecifier(stmt.source.value)) body.push(stmt);
+      continue;
+    }
 
     if (t.isExportNamedDeclaration(stmt)) {
       if (stmt.declaration) body.push(stmt.declaration);

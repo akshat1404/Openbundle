@@ -73,4 +73,41 @@ describe("mergeModules — fixtures/merge-collisions", () => {
     expect(result.code).toMatch(/function shared\(\)/);
     expect(result.code).toMatch(/return shared\(\);/); // helperA's own call site
   });
+
+  it("index.js's reference to sharedA() resolves correctly to a.js's real, unrenamed shared", () => {
+    const indexBlock = indexBlockOf(result.code);
+    expect(indexBlock).not.toMatch(/\bsharedA\b/);
+    expect(indexBlock).toMatch(/console\.log\(shared\(\), shared\$1\(\)/);
+  });
+
+  it("index.js's reference to sharedB() resolves correctly to b.js's real, renamed shared$1", () => {
+    const indexBlock = indexBlockOf(result.code);
+    expect(indexBlock).not.toMatch(/\bsharedB\b/);
+    expect(indexBlock).toMatch(/shared\$1\(\)/);
+  });
+
+  it("the full merged output actually executes, with no ReferenceError", () => {
+    const originalLog = console.log;
+    const calls: unknown[][] = [];
+    console.log = (...args: unknown[]) => {
+      calls.push(args);
+    };
+    try {
+      expect(() => {
+        // eslint-disable-next-line no-new-func -- proving the generated
+        // code is real, runnable JS is the whole point of this test.
+        new Function(result.code)();
+      }).not.toThrow();
+    } finally {
+      console.log = originalLog;
+    }
+
+    // ran for real, calling a.js's shared() and b.js's real shared$1(),
+    // not silently doing nothing.
+    expect(calls).toEqual([["a", "b", "a", "b", 10, { shared: "not the function", label: "shared" }]]);
+  });
 });
+
+function indexBlockOf(code: string): string {
+  return code.slice(code.indexOf("// index.js"));
+}
