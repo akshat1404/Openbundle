@@ -51,6 +51,23 @@ Do not repeat these. They are exactly why this project uses a real parser instea
 
 All four were caused by treating source code as text to pattern-match instead of structure to parse. A real AST with real scope tracking makes every one of these categorically impossible, not just less likely.
 
+## Pipeline UI
+
+The illustrator's pipeline view must resemble a real CI/CD pipeline (GitLab's pipeline view is the reference), not a row of plain labeled boxes. This is a durable structural requirement, every future stage that adds a new detail panel (merge, tree-shaking, chunking) must follow it, not just stage two's resolution view.
+
+**Structure**: five labeled stage columns, `RESOLVE`, `ORDER`, `MERGE`, `SHAKE`, `CHUNK`, uppercase muted headers. One job card per column (the pipeline is strictly sequential, no parallel jobs). Cards connect to their neighbors with soft curved connector lines, not straight lines or arrows.
+
+**Each job card** shows a status icon, the job's name, and a status line beneath it, duration and outcome once run, `not started` in muted gray before then.
+
+**Three visual states, consistently applied everywhere a job card appears**:
+- Passed — green filled circle with a check icon, plain border, normal text weight
+- Failed — red filled circle with an X icon, red border, pale red background tint on the whole card
+- Not started — hollow gray ring icon, muted gray text throughout, no border emphasis
+
+**Interaction**: clicking a passed job card opens a detail panel below the row showing that job's real, actual computed output, never placeholder or fake data. Clicking a not-started card honestly shows it hasn't run. Only one detail panel open at a time.
+
+**Detail panel content is stage-specific and must be designed deliberately, not defaulted to the same generic layout for every stage**: resolution shows the graph, ordering shows the sorted sequence, merge shows the actual merged code with collisions highlighted, tree-shaking shows kept versus removed declarations, chunking shows the real output chunk cards. Each of these gets designed when its own stage is built, this section only fixes the surrounding shell, the columns, cards, states, and click behavior, so every stage's detail panel lives inside a consistent pipeline instead of five independently-styled sections.
+
 ## Deployment
 
 Openbundle deploys to GitHub Pages, no backend, matching the project's own client-side-only architecture. Served from a project-repo subpath (`/Openbundle/`), not a domain root, `vite.config.ts` must set `base` accordingly or every built asset reference breaks silently. Deployed automatically via GitHub Actions on every push to `master`, using GitHub's own Pages deployment actions, not a third-party `gh-pages` branch action.
