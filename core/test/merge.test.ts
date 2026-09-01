@@ -7,6 +7,7 @@ import { loadFixtureProject } from "./fixtureLoader.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sampleProjectDir = path.join(__dirname, "..", "..", "fixtures", "sample-project");
 const mergeCollisionsDir = path.join(__dirname, "..", "..", "fixtures", "merge-collisions");
+const externalImportDir = path.join(__dirname, "..", "..", "fixtures", "external-import");
 
 describe("mergeModules — fixtures/sample-project", () => {
   const files = loadFixtureProject(sampleProjectDir);
@@ -105,6 +106,19 @@ describe("mergeModules — fixtures/merge-collisions", () => {
     // ran for real, calling a.js's shared() and b.js's real shared$1(),
     // not silently doing nothing.
     expect(calls).toEqual([["a", "b", "a", "b", 10, { shared: "not the function", label: "shared" }]]);
+  });
+});
+
+describe("mergeModules — fixtures/external-import", () => {
+  it("keeps the external import statement verbatim, untouched, in the merged output", () => {
+    const files = loadFixtureProject(externalImportDir);
+    const graph = buildDependencyGraph("index.js", files);
+    const order = orderModules(graph);
+    const result = mergeModules(graph, order);
+
+    // "untouched" per the brief's own scope boundary: still a real
+    // ImportDeclaration statement, not silently dropped or flattened.
+    expect(result.code).toMatch(/import axios from 'axios';/);
   });
 });
 

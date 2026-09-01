@@ -17,12 +17,20 @@ export interface MergeCollision {
   renamedTo: string;
 }
 
+/** One file's real, already-renamed, import/export-unwrapped statements. */
+export interface MergedFileBlock {
+  file: string;
+  statements: t.Statement[];
+}
+
 export interface MergeResult {
   /** The flattened, collision-resolved source, one block per file, in stage 3's order. */
   code: string;
   collisions: MergeCollision[];
   /** The local file order actually used to produce `code` — stage 3's order, external nodes already excluded. */
   fileOrder: string[];
+  /** Real AST statements per file — what later stages (tree-shaking, chunking) consume, not the text. */
+  blocks: MergedFileBlock[];
 }
 
 /**
@@ -99,13 +107,18 @@ export function mergeModules(graph: DependencyGraph, order: string[]): MergeResu
     }
   }
 
-  const blocks = localOrder.map((filePath) => {
+  const blocks: MergedFileBlock[] = localOrder.map((filePath) => {
     const node = graph.nodes.get(filePath);
-    if (!node || node.kind !== "local") return ""; // unreachable, filtered above
-    return renderFileBlock(filePath, node.module, renamesByFile.get(filePath));
+    const statements =
+      node && node.kind === "local"
+        ? buildFileStatements(node.module, renamesByFile.get(filePath))
+        : [];
+    return { file: filePath, statements };
   });
 
-  return { code: blocks.join("\n\n"), collisions, fileOrder: localOrder };
+  const code = blocks.map((b) => renderBlockCode(b.file, b.statements)).join("\n\n");
+
+  return { code, collisions, fileOrder: localOrder, blocks };
 }
 
 function renameMapFor(byFile: Map<string, Map<string, string>>, file: string): Map<string, string> {
@@ -132,17 +145,16 @@ function allocateFreeName(baseName: string, usedNames: Set<string>): string {
 }
 
 /**
- * Render one file's contribution to the merged output: its own AST,
+ * Build one file's contribution as real statement nodes: its own AST,
  * cloned (never mutate the shared parsed module later stages still
  * need), with every rename for this file — its own collision renames
  * and any import-alias rewires — applied via real scope tracking, then
  * with local import/export wrappers stripped.
  */
-function renderFileBlock(
-  filePath: string,
+function buildFileStatements(
   module: ParsedModule,
   fileRenames: Map<string, string> | undefined,
-): string {
+): t.Statement[] {
   const ast = t.cloneNode(module.ast, true);
 
   if (fileRenames && fileRenames.size > 0) {
@@ -186,7 +198,11 @@ function renderFileBlock(
     body.push(stmt);
   }
 
-  const fileNode = t.file(t.program(body));
+  return body;
+}
+
+function renderBlockCode(file: string, statements: t.Statement[]): string {
+  const fileNode = t.file(t.program(statements));
   const { code } = generate(fileNode, { comments: true });
-  return `// ${filePath}\n${code}`;
+  return `// ${file}\n${code}`;
 }
