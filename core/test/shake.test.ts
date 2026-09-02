@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 import { buildDependencyGraph, mergeModules, orderModules, shakeModules } from "../src/index.js";
 import { loadFixtureProject } from "./fixtureLoader.js";
@@ -16,8 +17,18 @@ function shakeFixture(dir: string, entry = "index.js") {
   return { graph, merged, shaken: shakeModules(merged, graph.entry) };
 }
 
+/**
+ * Real shaken output is free to reference real DOM APIs (it's whatever
+ * the user's own code did) — jsdom, scoped to just this run, is what
+ * gives `new Function` a real `document` to execute against, not a
+ * hand-rolled stub standing in for one.
+ */
 function runAndCapture(code: string): unknown[][] {
   const originalLog = console.log;
+  const originalDocument = (globalThis as { document?: unknown }).document;
+  const dom = new JSDOM();
+  (globalThis as { document?: unknown }).document = dom.window.document;
+
   const calls: unknown[][] = [];
   console.log = (...args: unknown[]) => {
     calls.push(args);
@@ -28,6 +39,7 @@ function runAndCapture(code: string): unknown[][] {
     new Function(code)();
   } finally {
     console.log = originalLog;
+    (globalThis as { document?: unknown }).document = originalDocument;
   }
   return calls;
 }
