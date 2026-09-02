@@ -4,9 +4,11 @@ import {
   orderModules,
   mergeModules,
   shakeModules,
+  chunkModules,
   type DependencyGraph,
   type MergeCollision,
   type ShakeItem,
+  type ChunkResult,
 } from "openbundle-core";
 import { FileUpload } from "./FileUpload.js";
 import { EntryPointConfirm } from "./EntryPointConfirm.js";
@@ -38,6 +40,10 @@ export function App() {
   const [shakeError, setShakeError] = useState<string | null>(null);
   const [shakeDurationMs, setShakeDurationMs] = useState<number | null>(null);
 
+  const [chunkResult, setChunkResult] = useState<ChunkResult | null>(null);
+  const [chunkError, setChunkError] = useState<string | null>(null);
+  const [chunkDurationMs, setChunkDurationMs] = useState<number | null>(null);
+
   function resetPipelineState() {
     setGraph(null);
     setResolveError(null);
@@ -54,6 +60,9 @@ export function App() {
     setShakeRemoved([]);
     setShakeError(null);
     setShakeDurationMs(null);
+    setChunkResult(null);
+    setChunkError(null);
+    setChunkDurationMs(null);
   }
 
   function handleFilesSelected(files: SampleFile[]) {
@@ -88,13 +97,16 @@ export function App() {
       setShakeRemoved([]);
       setShakeError(null);
       setShakeDurationMs(null);
+      setChunkResult(null);
+      setChunkError(null);
+      setChunkDurationMs(null);
       return;
     }
     const resolvedGraph = resolveRun.value;
 
-    // Ordering, merge, and tree-shaking are each pure derivations of the
-    // graph resolve just produced — every one runs immediately, same
-    // click, each timed for real.
+    // Ordering, merge, tree-shaking, and chunking are each pure
+    // derivations of the graph resolve just produced — every one runs
+    // immediately, same click, each timed for real.
     const orderRun = runTimed(() => orderModules(resolvedGraph));
     setOrderDurationMs(orderRun.durationMs);
     setOrder(orderRun.value);
@@ -109,10 +121,14 @@ export function App() {
       setShakeRemoved([]);
       setShakeError(null);
       setShakeDurationMs(null);
+      setChunkResult(null);
+      setChunkError(null);
+      setChunkDurationMs(null);
       return;
     }
+    const resolvedOrder = orderRun.value;
 
-    const mergeRun = runTimed(() => mergeModules(resolvedGraph, orderRun.value!));
+    const mergeRun = runTimed(() => mergeModules(resolvedGraph, resolvedOrder));
     setMergeDurationMs(mergeRun.durationMs);
     setMergedCode(mergeRun.value?.code ?? null);
     setMergeCollisions(mergeRun.value?.collisions ?? []);
@@ -123,6 +139,9 @@ export function App() {
       setShakeRemoved([]);
       setShakeError(null);
       setShakeDurationMs(null);
+      setChunkResult(null);
+      setChunkError(null);
+      setChunkDurationMs(null);
       return;
     }
 
@@ -132,6 +151,20 @@ export function App() {
     setShakeKept(shakeRun.value?.kept ?? []);
     setShakeRemoved(shakeRun.value?.removed ?? []);
     setShakeError(shakeRun.error);
+    if (!shakeRun.value) {
+      setChunkResult(null);
+      setChunkError(null);
+      setChunkDurationMs(null);
+      return;
+    }
+
+    // Chunking re-derives its own per-chunk merge/shake from the graph
+    // and order directly — it doesn't consume the whole-graph merge/
+    // shake results above, those illustrate the single-scope view.
+    const chunkRun = runTimed(() => chunkModules(resolvedGraph, resolvedOrder));
+    setChunkDurationMs(chunkRun.durationMs);
+    setChunkResult(chunkRun.value);
+    setChunkError(chunkRun.error);
   }
 
   return (
@@ -186,6 +219,9 @@ export function App() {
           shakeRemoved={shakeRemoved}
           shakeError={shakeError}
           shakeDurationMs={shakeDurationMs}
+          chunkResult={chunkResult}
+          chunkError={chunkError}
+          chunkDurationMs={chunkDurationMs}
         />
       </section>
     </main>

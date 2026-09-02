@@ -1,11 +1,12 @@
 import { Fragment, useState, type ReactNode } from "react";
-import type { DependencyGraph, MergeCollision, ShakeItem } from "openbundle-core";
+import type { ChunkResult, DependencyGraph, MergeCollision, ShakeItem } from "openbundle-core";
 import { JobCard } from "./pipeline/JobCard.js";
 import { Connector } from "./pipeline/Connector.js";
 import { GraphDiagram } from "./pipeline/GraphDiagram.js";
 import { OrderSequence } from "./pipeline/OrderSequence.js";
 import { MergePanel } from "./pipeline/MergePanel.js";
 import { ShakePanel } from "./pipeline/ShakePanel.js";
+import { ChunkPanel } from "./pipeline/ChunkPanel.js";
 import { formatDuration } from "./pipeline/formatDuration.js";
 import type { JobStatus } from "./pipeline/types.js";
 
@@ -25,6 +26,9 @@ interface PipelineStagesProps {
   shakeRemoved: ShakeItem[];
   shakeError: string | null;
   shakeDurationMs: number | null;
+  chunkResult: ChunkResult | null;
+  chunkError: string | null;
+  chunkDurationMs: number | null;
 }
 
 interface StageConfig {
@@ -57,6 +61,9 @@ export function PipelineStages({
   shakeRemoved,
   shakeError,
   shakeDurationMs,
+  chunkResult,
+  chunkError,
+  chunkDurationMs,
 }: PipelineStagesProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
@@ -64,6 +71,7 @@ export function PipelineStages({
   const orderStatus: JobStatus = orderError ? "failed" : order ? "passed" : "not-started";
   const mergeStatus: JobStatus = mergeError ? "failed" : mergedCode !== null ? "passed" : "not-started";
   const shakeStatus: JobStatus = shakeError ? "failed" : shakenCode !== null ? "passed" : "not-started";
+  const chunkStatus: JobStatus = chunkError ? "failed" : chunkResult ? "passed" : "not-started";
 
   const stages: StageConfig[] = [
     {
@@ -94,7 +102,13 @@ export function PipelineStages({
       status: shakeStatus,
       statusLine: jobStatusLine(shakeStatus, shakeDurationMs),
     },
-    { key: "chunk", columnLabel: "CHUNK", jobName: "chunk:output", status: "not-started", statusLine: "not started" },
+    {
+      key: "chunk",
+      columnLabel: "CHUNK",
+      jobName: "chunk:output",
+      status: chunkStatus,
+      statusLine: jobStatusLine(chunkStatus, chunkDurationMs),
+    },
   ];
 
   const selectedStage = stages.find((s) => s.key === selectedKey) ?? null;
@@ -138,6 +152,8 @@ export function PipelineStages({
             shakeKept,
             shakeRemoved,
             shakeError,
+            chunkResult,
+            chunkError,
           })}
         </div>
       )}
@@ -162,6 +178,8 @@ interface DetailContext {
   shakeKept: ShakeItem[];
   shakeRemoved: ShakeItem[];
   shakeError: string | null;
+  chunkResult: ChunkResult | null;
+  chunkError: string | null;
 }
 
 function renderDetail(key: string, status: JobStatus, ctx: DetailContext): ReactNode {
@@ -195,13 +213,14 @@ function renderDetail(key: string, status: JobStatus, ctx: DetailContext): React
     return <p className="pipeline-detail__empty">Merge the modules first — tree-shaking runs right after.</p>;
   }
 
-  // chunk: no algorithm built yet, so honestly say so — never a
-  // placeholder dressed up as output.
-  return (
-    <p className="pipeline-detail__empty">
-      This stage hasn&apos;t run — it isn&apos;t built yet.
-    </p>
-  );
+  if (key === "chunk") {
+    if (status === "passed" && ctx.chunkResult) return <ChunkPanel result={ctx.chunkResult} />;
+    if (status === "failed") return <p className="pipeline-detail__error">{ctx.chunkError}</p>;
+    return <p className="pipeline-detail__empty">Tree-shake the modules first — chunking runs right after.</p>;
+  }
+
+  // (unreachable — every stage is now wired)
+  return null;
 }
 
 function ResolutionSummary({ graph }: { graph: DependencyGraph }) {
