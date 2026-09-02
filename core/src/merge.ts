@@ -23,6 +23,27 @@ export interface MergedFileBlock {
   statements: t.Statement[];
 }
 
+/** Where a file outside this merge's own `order` actually lives — for chunking. */
+export interface ExternalChunkTarget {
+  /** The physical output filename that file's own chunk was written to. */
+  outputFile: string;
+  /** originalDeclaredName -> the real, possibly-collision-renamed identifier in that chunk. */
+  finalNameOf: Map<string, string>;
+}
+
+export interface MergeOptions {
+  /**
+   * Files outside `order` this merge's own files may still statically
+   * import from — target file -> where it really lives. Omit for a
+   * normal whole-graph merge (today's behavior: every local file is in
+   * `order`, so this case never comes up). Required when `order` is a
+   * chunk-local subset and some of its files import something that
+   * lives in a different chunk: merge emits a real cross-chunk `import`
+   * statement for it instead of assuming everything shares one scope.
+   */
+  externalChunks?: Map<string, ExternalChunkTarget>;
+}
+
 export interface MergeResult {
   /** The flattened, collision-resolved source, one block per file, in stage 3's order. */
   code: string;
@@ -31,6 +52,8 @@ export interface MergeResult {
   fileOrder: string[];
   /** Real AST statements per file — what later stages (tree-shaking, chunking) consume, not the text. */
   blocks: MergedFileBlock[];
+  /** Every top-level declared name's real, final identifier, by file — unchanged names map to themselves. Lets other chunks resolve what to import from this one. */
+  finalNames: Map<string, Map<string, string>>;
 }
 
 /**
@@ -47,23 +70,34 @@ export interface MergeResult {
  * binding, a shadowed inner variable, an object property key, or a
  * string literal that merely shares the spelling.
  *
- * A second, unified pass then handles import aliasing: for every static,
- * local import specifier, if the importing file's own local alias name
- * doesn't already match the real (possibly-just-renamed) name of the
- * thing it imports, that alias gets folded into the very same rename
- * map and rewired via the same Scope.rename call. A non-aliased import
- * (`local === imported`) resolves to a no-op through this exact path —
- * there's no separate "aliased" vs "non-aliased" branch.
+ * A second, unified pass then handles import aliasing — both the
+ * ordinary kind (an import whose target is in this same merge's
+ * `order`, so it gets flattened away) and, when `options.externalChunks`
+ * is supplied, the cross-chunk kind (a target that lives in a different
+ * chunk entirely): for every static import specifier, if the local
+ * alias doesn't already match the real (possibly-renamed) name of what
+ * it imports, that alias gets folded into the very same rename map and
+ * rewired via the same Scope.rename call — one mechanism, not two. The
+ * only difference cross-chunk makes is what happens to the import
+ * *statement* itself: an in-chunk one is stripped (flattened into this
+ * scope); a cross-chunk one survives as a real synthesized `import`,
+ * grouped per target file, pointing at that chunk's real output file.
  *
  * Nothing is removed for being "unused" here — that's stage 5's job.
- * Local import/export statements are stripped, since once every file
- * shares one scope there's nothing left for them to link; an external
- * (bare-specifier) import statement is left completely untouched, per
- * the project's scope boundary — it's never opened, so merge has
- * nothing to flatten it into.
+ * Local (in-chunk) import/export statements are stripped, since once
+ * every file in this merge shares one scope there's nothing left for
+ * them to link; an external (bare-specifier) import statement is left
+ * completely untouched, per the project's scope boundary — it's never
+ * opened, so merge has nothing to flatten it into.
  */
-export function mergeModules(graph: DependencyGraph, order: string[]): MergeResult {
+export function mergeModules(
+  graph: DependencyGraph,
+  order: string[],
+  options: MergeOptions = {},
+): MergeResult {
   const localOrder = order.filter((id) => graph.nodes.get(id)?.kind === "local");
+  const localSet = new Set(localOrder);
+  const externalChunks = options.externalChunks ?? new Map<string, ExternalChunkTarget>();
 
   const usedNames = new Set<string>();
   const renamesByFile = new Map<string, Map<string, string>>();
@@ -86,10 +120,24 @@ export function mergeModules(graph: DependencyGraph, order: string[]): MergeResu
     }
   }
 
-  // Pass 2: rewire every static, local import alias to the real, final
-  // name of whatever it imports — computed from pass 1's renames, which
-  // are already complete for every file by this point regardless of
-  // processing order.
+  // Every declared name's real final identifier — computed from pass 1
+  // alone (import aliases below never touch a file's own declarations).
+  const finalNames = new Map<string, Map<string, string>>();
+  for (const filePath of localOrder) {
+    const node = graph.nodes.get(filePath);
+    if (!node || node.kind !== "local") continue;
+    const names = new Map<string, string>();
+    for (const name of topLevelDeclarationNames(node.module)) {
+      names.set(name, renamesByFile.get(filePath)?.get(name) ?? name);
+    }
+    finalNames.set(filePath, names);
+  }
+
+  // Pass 2: rewire every static import alias to the real, final name of
+  // whatever it imports. In-chunk targets get flattened as before;
+  // cross-chunk targets get recorded as real demand instead.
+  const crossChunkDemand = new Map<string, Map<string, Set<string>>>(); // targetOutputFile -> targetFile -> Set<finalNameInTarget>
+
   for (const filePath of localOrder) {
     const node = graph.nodes.get(filePath);
     if (!node || node.kind !== "local") continue;
@@ -98,11 +146,31 @@ export function mergeModules(graph: DependencyGraph, order: string[]): MergeResu
       if (imp.kind !== "static" || isExternalSpecifier(imp.source)) continue;
       const targetFile = resolveRelativeImport(filePath, imp.source);
 
-      for (const spec of imp.specifiers) {
-        const finalName = renamesByFile.get(targetFile)?.get(spec.imported) ?? spec.imported;
-        if (spec.local !== finalName) {
-          renameMapFor(renamesByFile, filePath).set(spec.local, finalName);
+      if (localSet.has(targetFile)) {
+        for (const spec of imp.specifiers) {
+          const finalName = renamesByFile.get(targetFile)?.get(spec.imported) ?? spec.imported;
+          if (spec.local !== finalName) {
+            renameMapFor(renamesByFile, filePath).set(spec.local, finalName);
+          }
         }
+        continue;
+      }
+
+      const target = externalChunks.get(targetFile);
+      if (!target) {
+        throw new Error(
+          `Openbundle: "${filePath}" imports "${targetFile}", which is outside this chunk, but no cross-chunk mapping was provided for it`,
+        );
+      }
+      for (const spec of imp.specifiers) {
+        const finalNameInTarget = target.finalNameOf.get(spec.imported) ?? spec.imported;
+        if (spec.local !== finalNameInTarget) {
+          renameMapFor(renamesByFile, filePath).set(spec.local, finalNameInTarget);
+        }
+        if (!crossChunkDemand.has(target.outputFile)) crossChunkDemand.set(target.outputFile, new Map());
+        const byTarget = crossChunkDemand.get(target.outputFile)!;
+        if (!byTarget.has(targetFile)) byTarget.set(targetFile, new Set());
+        byTarget.get(targetFile)!.add(finalNameInTarget);
       }
     }
   }
@@ -116,9 +184,28 @@ export function mergeModules(graph: DependencyGraph, order: string[]): MergeResu
     return { file: filePath, statements };
   });
 
-  const code = blocks.map((b) => renderBlockCode(b.file, b.statements)).join("\n\n");
+  // Prepend one synthesized `import` per distinct cross-chunk target
+  // file, grouping every name this chunk actually needs from it.
+  const crossChunkImportStatements: t.Statement[] = [];
+  for (const [outputFile, byTargetFile] of crossChunkDemand) {
+    const names = new Set<string>();
+    for (const [, ns] of byTargetFile) for (const n of ns) names.add(n);
+    crossChunkImportStatements.push(
+      t.importDeclaration(
+        [...names].map((n) => t.importSpecifier(t.identifier(n), t.identifier(n))),
+        t.stringLiteral(`./${outputFile}`),
+      ),
+    );
+  }
 
-  return { code, collisions, fileOrder: localOrder, blocks };
+  const allBlocks: MergedFileBlock[] =
+    crossChunkImportStatements.length > 0
+      ? [{ file: "(chunk imports)", statements: crossChunkImportStatements }, ...blocks]
+      : blocks;
+
+  const code = allBlocks.map((b) => renderBlockCode(b.file, b.statements)).join("\n\n");
+
+  return { code, collisions, fileOrder: localOrder, blocks: allBlocks, finalNames };
 }
 
 function renameMapFor(byFile: Map<string, Map<string, string>>, file: string): Map<string, string> {
@@ -148,8 +235,10 @@ function allocateFreeName(baseName: string, usedNames: Set<string>): string {
  * Build one file's contribution as real statement nodes: its own AST,
  * cloned (never mutate the shared parsed module later stages still
  * need), with every rename for this file — its own collision renames
- * and any import-alias rewires — applied via real scope tracking, then
- * with local import/export wrappers stripped.
+ * and any import-alias rewires (in-chunk or cross-chunk) — applied via
+ * real scope tracking, then with local import/export wrappers stripped.
+ * An external import statement is the only import shape that survives
+ * here; a cross-chunk import is added separately, once per target file.
  */
 function buildFileStatements(
   module: ParsedModule,
@@ -172,6 +261,9 @@ function buildFileStatements(
     if (t.isImportDeclaration(stmt)) {
       // External imports keep the import statement untouched — they're
       // never opened, so there's nothing for merge to flatten it into.
+      // Every other import (in-chunk or cross-chunk) is dropped here —
+      // in-chunk because it's now flattened into this scope, cross-chunk
+      // because a combined replacement was already synthesized above.
       if (isExternalSpecifier(stmt.source.value)) body.push(stmt);
       continue;
     }

@@ -2,7 +2,7 @@ import traverse from "@babel/traverse";
 import generate from "@babel/generator";
 import * as t from "@babel/types";
 import type { NodePath } from "@babel/traverse";
-import type { MergedFileBlock, MergeResult } from "./merge.js";
+import type { MergedFileBlock, MergeResult } from "./merge.js"; // MergedFileBlock re-used as ShakeResult's own block shape
 
 export type ShakeReason =
   | "reachable-from-entry"
@@ -19,11 +19,25 @@ export interface ShakeItem {
   reason: ShakeReason;
 }
 
+export interface ShakeOptions {
+  /**
+   * Declared names to treat as always-kept, seeding the reachability
+   * walk directly — real demand from outside this chunk (a consumer's
+   * static import, or what's destructured from a dynamic `import()` of
+   * this chunk), not inferred from any statement inside it. Omit for a
+   * normal whole-graph shake (today's behavior: only this pass's own
+   * kept statements seed the walk).
+   */
+  externalRoots?: Set<string>;
+}
+
 export interface ShakeResult {
   /** The shaken source: only kept statements, same per-file grouping merge used. */
   code: string;
   kept: ShakeItem[];
   removed: ShakeItem[];
+  /** Kept statements per file, same grouping merge used — for chunking's further AST work (dynamic-import rewriting, export synthesis). */
+  blocks: MergedFileBlock[];
 }
 
 /**
@@ -54,7 +68,11 @@ export interface ShakeResult {
  * External imports (kept untouched by merge) are always kept here too
  * — they're never opened, so reachability doesn't apply to them.
  */
-export function shakeModules(merge: MergeResult, entry: string): ShakeResult {
+export function shakeModules(
+  merge: MergeResult,
+  entry: string,
+  options: ShakeOptions = {},
+): ShakeResult {
   // `entry` is kept in the public signature (callers already pass it, and
   // "which file is the entry point" is part of this function's documented
   // contract) but no longer changes root-selection: whether a statement
@@ -81,6 +99,17 @@ export function shakeModules(merge: MergeResult, entry: string): ShakeResult {
   for (const unit of units) {
     if (unit.selfKeep) outputKept.add(unit.key);
     if (unit.selfKeep || unit.isWalkRoot) visit(unit);
+  }
+
+  // Real external demand seeds the walk directly, exactly like any
+  // other kept unit would — a consumer's static import, or what a
+  // dynamic import() of this chunk actually destructures.
+  for (const name of options.externalRoots ?? []) {
+    const unit = nameToUnit.get(name);
+    if (unit) {
+      outputKept.add(unit.key);
+      visit(unit);
+    }
   }
 
   while (worklist.length > 0) {
@@ -112,17 +141,21 @@ export function shakeModules(merge: MergeResult, entry: string): ShakeResult {
     }
   }
 
-  const code = merge.fileOrder
-    .map((file) => {
-      const stmts = keptStatementsByFile.get(file);
-      if (!stmts || stmts.length === 0) return null;
-      const fileNode = t.file(t.program(stmts));
-      return `// ${file}\n${generate(fileNode, { comments: true }).code}`;
+  // Iterate merge's own block order — not just fileOrder — so a
+  // synthesized "(chunk imports)" block (real ImportDeclarations, no
+  // real file of their own) survives here too, in the same position.
+  const blocks: MergedFileBlock[] = merge.blocks
+    .map((b) => ({ file: b.file, statements: keptStatementsByFile.get(b.file) ?? [] }))
+    .filter((b) => b.statements.length > 0);
+
+  const code = blocks
+    .map((b) => {
+      const fileNode = t.file(t.program(b.statements));
+      return `// ${b.file}\n${generate(fileNode, { comments: true }).code}`;
     })
-    .filter((block): block is string => block !== null)
     .join("\n\n");
 
-  return { code, kept, removed };
+  return { code, kept, removed, blocks };
 }
 
 function reasonFor(unit: Unit, isKept: boolean): ShakeReason {
