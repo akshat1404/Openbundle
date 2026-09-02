@@ -29,21 +29,23 @@ export interface ShakeResult {
 /**
  * Mark-and-sweep reachability over merge's real output.
  *
- * Roots: the entry file's own top-level bare (non-declaration)
- * statements — "what's provably needed" because the entry module's own
- * code always runs. Every other bare statement, in any file, is judged
- * independently by Task 2's rule: provably side-effect-free (a pure
- * expression, computed and discarded) is removable the same way an
- * unreferenced declaration is; anything that might have a real,
+ * Every bare (non-declaration) statement, in any file, is judged by
+ * Task 2's rule: provably side-effect-free (a pure expression, computed
+ * and discarded) is removable; anything that might have a real,
  * unprovable effect is kept by default regardless of whether anything
  * references it — reference is never the test for a statement, safety
- * is.
+ * is. A statement seeds the reachability walk if and only if it's
+ * actually kept — an impure statement that survives pulls in whatever
+ * it references; a pure statement that gets removed pulls in nothing,
+ * because nothing it referenced was ever really needed either. There's
+ * no special case for the entry file: if every one of its statements
+ * turns out pure, the correct result is that nothing survives at all —
+ * that's what "no observable effect anywhere" means, not a bug.
  *
  * A named declaration (function/class/const/...) is inert by nature:
- * it survives only if something that's actually kept — a root
- * statement, a kept side-effecting statement anywhere, or another
- * reachable declaration — really references it. Reference discovery
- * uses `@babel/traverse`'s own scope resolution
+ * it survives only if something that's actually kept — a kept
+ * statement, or another reachable declaration — really references it.
+ * Reference discovery uses `@babel/traverse`'s own scope resolution
  * (`path.isReferencedIdentifier()` + `scope.getBinding`) against the
  * whole flattened program's real top-level scope, not text matching —
  * a shadowed inner variable, a property key, or a string literal that
@@ -53,7 +55,12 @@ export interface ShakeResult {
  * — they're never opened, so reachability doesn't apply to them.
  */
 export function shakeModules(merge: MergeResult, entry: string): ShakeResult {
-  const units = buildUnits(merge.blocks, entry);
+  // `entry` is kept in the public signature (callers already pass it, and
+  // "which file is the entry point" is part of this function's documented
+  // contract) but no longer changes root-selection: whether a statement
+  // seeds the walk is exactly whether it's kept (see makeUnit), regardless
+  // of which file it's in.
+  const units = buildUnits(merge.blocks);
   const nameToUnit = new Map<string, Unit>();
   for (const unit of units) {
     for (const name of unit.declaredNames) nameToUnit.set(name, unit);
@@ -138,17 +145,17 @@ interface Unit {
   references: Set<string>;
 }
 
-function buildUnits(blocks: MergedFileBlock[], entry: string): Unit[] {
+function buildUnits(blocks: MergedFileBlock[]): Unit[] {
   const units: Unit[] = [];
   for (const block of blocks) {
     block.statements.forEach((stmt, index) => {
-      units.push(makeUnit(block.file, stmt, index, block.file === entry));
+      units.push(makeUnit(block.file, stmt, index));
     });
   }
   return units;
 }
 
-function makeUnit(file: string, stmt: t.Statement, index: number, isEntryFile: boolean): Unit {
+function makeUnit(file: string, stmt: t.Statement, index: number): Unit {
   if (t.isImportDeclaration(stmt)) {
     // Only external imports survive merge as ImportDeclaration nodes.
     const declaredNames = stmt.specifiers
@@ -184,7 +191,14 @@ function makeUnit(file: string, stmt: t.Statement, index: number, isEntryFile: b
     };
   }
 
-  // A bare, non-declaration statement.
+  // A bare, non-declaration statement. A statement seeds the
+  // reachability walk if and only if it's actually kept: a pure
+  // statement is removed, and nothing it referenced was ever really
+  // needed either — a reference that doesn't itself survive can't keep
+  // anything else alive. No entry-file carve-out: if every one of
+  // entry's own statements turns out pure, the correct result is that
+  // nothing survives — that's what "no observable effect anywhere"
+  // actually means, not a bug to work around.
   const pure = isPureStatement(stmt);
   return {
     key: `${file}#stmt#${index}`,
@@ -194,13 +208,7 @@ function makeUnit(file: string, stmt: t.Statement, index: number, isEntryFile: b
     label: summarizeStatement(stmt),
     kind: "statement",
     selfKeep: !pure,
-    // Entry's own statements are always walk roots ("what's provably
-    // needed") regardless of their own purity — even one that turns out
-    // pure (and so is itself removed) still shouldn't hide reachability
-    // of whatever it references. Any other kept (impure) statement, in
-    // any file, is also a valid root: if it survives, so must whatever
-    // it uses.
-    isWalkRoot: isEntryFile || !pure,
+    isWalkRoot: !pure,
     references: new Set(),
   };
 }

@@ -99,6 +99,7 @@ fixtures/
     chain.js
     stepB.js
     stepC.js
+    config.js
 ```
 
 `core`'s test suite reads `fixtures/sample-project/` directly off disk (via Node's `fs`) to test resolution, ordering, merge, tree-shaking, and chunking against real files, the same files whose expected behavior was already verified against real Rollup output during design.
@@ -109,7 +110,7 @@ fixtures/
 
 `fixtures/merge-collisions/` is a third, small, dedicated fixture solely for testing merge's collision-renaming: `a.js` and `b.js` each declare their own top-level `shared` (a real collision), `c.js` is deliberately unrelated — its own local variable named `shared` inside a function, plus an object property key and a string literal that both happen to spell `shared` — none of which are collision candidates and none of which may ever be touched by a rename happening in `a.js`/`b.js`.
 
-`fixtures/tree-shaking/` is a fourth, small, dedicated fixture for testing reachability: `index.js` calls `runA()` (chain.js), which calls `stepB()` (stepB.js), which calls `stepC()` (stepC.js) — a real three-level transitive chain, only `runA` directly visible from the entry's own root statement. `index.js` also declares `unusedHelper` (never called, must be removed), a bare `5 + 3;` (provably side-effect-free, must be removed), and a bare `sideEffect();` call (provably not side-effect-free, must be kept by default).
+`fixtures/tree-shaking/` is a fourth, small, dedicated fixture for testing reachability: `index.js` calls `runA()` (chain.js), which calls `stepB()` (stepB.js), which calls `stepC()` (stepC.js) — a real three-level transitive chain, only `runA` directly visible from the entry's own root statement. `index.js` also declares `unusedHelper` (never called, must be removed), a bare `5 + 3;` (provably side-effect-free, must be removed), and a bare `sideEffect();` call (provably not side-effect-free, must be kept by default). `config.js` exports `ONLY_USED_BY_DEAD_CODE`, referenced only by a bare `ONLY_USED_BY_DEAD_CODE * 2;` statement in `index.js` — since that statement is itself pure and gets removed, the declaration it referenced was never really needed either and must be removed too, not kept on the strength of a reference that doesn't survive.
 
 ## Testing Discipline
 

@@ -86,6 +86,20 @@ describe("shakeModules — fixtures/tree-shaking", () => {
       ["side effect ran"],
     ]);
   });
+
+  it("removes a dead statement's declaration too — a reference that doesn't itself survive can't keep anything alive", () => {
+    // ONLY_USED_BY_DEAD_CODE is referenced only by `ONLY_USED_BY_DEAD_CODE * 2;`,
+    // which is itself pure and gets removed. The reference dies with the
+    // statement, so the declaration it pointed to was never really needed
+    // either — matching real Rollup's output for the equivalent input.
+    expect(shaken.code).not.toMatch(/ONLY_USED_BY_DEAD_CODE/);
+    expect(
+      shaken.removed.some((r) => r.label === "ONLY_USED_BY_DEAD_CODE" && r.reason === "unreferenced"),
+    ).toBe(true);
+    expect(
+      shaken.removed.some((r) => r.reason === "side-effect-free" && r.label.includes("ONLY_USED_BY_DEAD_CODE")),
+    ).toBe(true);
+  });
 });
 
 describe("shakeModules — fixtures/external-import", () => {
